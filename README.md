@@ -1,5 +1,7 @@
 # GridWorld Value Iteration (DRL HW1)
 
+🚀 **線上展演 (Live Demo) 立即體驗**： [https://drl-hw-1-lilac.vercel.app/](https://drl-hw-1-lilac.vercel.app/)
+
 這是一個基於 Flask 與強化學習 (Reinforcement Learning) 的互動式網格地圖尋路專案。使用者可以自訂地圖大小、起點、終點以及障礙物，系統將使用 **價值迭代 (Value Iteration)** 演算法來推導出最佳政策 (Optimal Policy) 與狀態價值 (State Value Function)。
 
 ## ✨ 主要功能
