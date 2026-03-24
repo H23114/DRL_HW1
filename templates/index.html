@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GridWorld 價值迭代與最佳策略</title>
+    <!-- Use dynamic timestamp param to prevent caching style.css -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=3">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container main-container">
+        <h1>GridWorld 價值迭代</h1>
+        <p class="subtitle">1. 設定起點、終點與障礙物<br>2. 點擊按鈕推導最佳策略與價值函數 V(s)</p>
+        
+        <div class="setup-section" id="setupSection">
+            <div class="input-form">
+                <input type="number" id="gridSize" min="5" max="9" required placeholder="維度 (5-9)" class="number-input" value="5">
+                <button type="button" class="submit-btn" id="generateBtn">
+                    <i class="fa-solid fa-table-cells"></i> 產生網格
+                </button>
+            </div>
+        </div>
+
+        <div id="statusAlert" class="status-alert hidden"></div>
+
+        <div id="gridWrapper" class="grid-wrapper hidden">
+            <div class="grid-container" id="gridContainer"></div>
+        </div>
+        
+        <div id="actionSection" class="action-section hidden">
+            <button type="button" class="submit-btn primary-btn" id="evaluateBtn">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> 執行價值迭代
+            </button>
+            <button type="button" class="submit-btn reset-btn" id="resetBtn">
+                <i class="fa-solid fa-rotate-right"></i> 重新設定
+            </button>
+        </div>
+
+        <div id="legendSection" class="legend hidden">
+            <div class="legend-item"><div class="legend-color start"></div> 起點</div>
+            <div class="legend-item"><div class="legend-color terminal"></div> 終結狀態</div>
+            <div class="legend-item"><div class="legend-color obstacle"></div> 障礙物</div>
+            <div class="legend-item"><div class="legend-color normal"></div> 普通狀態</div>
+            <div class="legend-item"><i class="fa-solid fa-arrow-up" style="color:var(--text-muted)"></i> 最佳行動</div>
+        </div>
+    </div>
+
+    <script>
+        const generateBtn = document.getElementById('generateBtn');
+        const evaluateBtn = document.getElementById('evaluateBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const gridSizeInput = document.getElementById('gridSize');
+        const gridContainer = document.getElementById('gridContainer');
+        const gridWrapper = document.getElementById('gridWrapper');
+        const statusAlert = document.getElementById('statusAlert');
+        const actionSection = document.getElementById('actionSection');
+        const legendSection = document.getElementById('legendSection');
+
+        let size = 0;
+        let setupPhase = 0; // 0: Start, 1: End, 2: Obstacles, 3: Done
+        let startCell = null;
+        let endCell = null;
+        let obstacles = [];
+        let numObstaclesNeeded = 0;
+
+        generateBtn.addEventListener('click', () => {
+            const val = parseInt(gridSizeInput.value);
+            if (val >= 5 && val <= 9) {
+                initGrid(val);
+            } else {
+                alert("請輸入 5 到 9 之間的數字！");
+            }
+        });
+
+        resetBtn.addEventListener('click', () => {
+            initGrid(size);
+            evaluateBtn.disabled = false;
+        });
+
+        function initGrid(n) {
+            size = n;
+            setupPhase = 0;
+            startCell = null;
+            endCell = null;
+            obstacles = [];
+            numObstaclesNeeded = n - 2;
+
+            gridContainer.style.setProperty('--grid-size', n);
+            gridContainer.innerHTML = '';
+
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'grid-cell empty-cell';
+                    cell.dataset.r = i;
+                    cell.dataset.c = j;
+                    
+                    const valueDiv = document.createElement('div');
+                    valueDiv.className = 'cell-value';
+                    
+                    const arrowsDiv = document.createElement('div');
+                    arrowsDiv.className = 'actions-overlay hidden';
+                    
+                    cell.appendChild(arrowsDiv);
+                    cell.appendChild(valueDiv);
+                    
+                    cell.addEventListener('click', () => handleCellClick(cell, i, j));
+                    gridContainer.appendChild(cell);
+                }
+            }
+
+            gridWrapper.classList.remove('hidden');
+            legendSection.classList.remove('hidden');
+            actionSection.classList.add('hidden');
+            updateStatus();
+        }
+
+        function handleCellClick(cell, r, c) {
+            if (setupPhase === 3) return; // Setup done
+            
+            // Cannot select a cell multiple times
+            if (!cell.classList.contains('empty-cell')) return;
+
+            if (setupPhase === 0) {
+                // Set Start (Green)
+                startCell = [r, c];
+                cell.classList.remove('empty-cell');
+                cell.classList.add('start-cell');
+                cell.querySelector('.cell-value').textContent = "起點";
+                setupPhase = 1;
+            } else if (setupPhase === 1) {
+                // Set End (Red)
+                endCell = [r, c];
+                cell.classList.remove('empty-cell');
+                cell.classList.add('terminal-cell');
+                cell.querySelector('.cell-value').textContent = "終點";
+                setupPhase = 2;
+                if (numObstaclesNeeded === 0) {
+                    setupPhase = 3;
+                }
+            } else if (setupPhase === 2) {
+                // Set Obstacles (Gray)
+                obstacles.push([r, c]);
+                cell.classList.remove('empty-cell');
+                cell.classList.add('obstacle-cell');
+                
+                if (obstacles.length >= numObstaclesNeeded) {
+                    setupPhase = 3;
+                }
+            }
+            updateStatus();
+        }
+
+        function updateStatus() {
+            statusAlert.classList.remove('hidden', 'success', 'warning', 'info');
+            if (setupPhase === 0) {
+                statusAlert.innerHTML = '<i class="fa-solid fa-flag"></i> 請點擊網格選擇 1 個起點 (綠色)';
+                statusAlert.classList.add('success');
+            } else if (setupPhase === 1) {
+                statusAlert.innerHTML = '<i class="fa-solid fa-flag-checkered"></i> 請點擊網格選擇 1 個終點 (紅色)';
+                statusAlert.classList.add('warning');
+            } else if (setupPhase === 2) {
+                const remains = numObstaclesNeeded - obstacles.length;
+                statusAlert.innerHTML = '<i class="fa-solid fa-cubes"></i> 請點擊網格選擇 ' + remains + ' 個障礙物 (灰色)';
+                statusAlert.classList.add('info');
+            } else if (setupPhase === 3) {
+                statusAlert.innerHTML = '<i class="fa-solid fa-check-circle"></i> 設定完成！請點擊下方按鈕以執行價值迭代';
+                statusAlert.classList.add('success');
+                actionSection.classList.remove('hidden');
+            }
+        }
+
+        evaluateBtn.addEventListener('click', async () => {
+            evaluateBtn.disabled = true;
+            evaluateBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 計算中...';
+            
+            try {
+                const response = await fetch('/api/evaluate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        size: size,
+                        start: startCell,
+                        end: endCell,
+                        obstacles: obstacles
+                    })
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    renderResult(data.grid_data);
+                    statusAlert.innerHTML = '<i class="fa-solid fa-award"></i> 價值迭代完成！圖表已更新 V(s) 與最佳行動。';
+                    statusAlert.classList.remove('info', 'warning');
+                    statusAlert.classList.add('success');
+                } else {
+                    alert("錯誤: " + data.message);
+                }
+            } catch (err) {
+                alert("請求失敗: " + err);
+            }
+            
+            evaluateBtn.innerHTML = '<i class="fa-solid fa-check"></i> 計算完成';
+        });
+
+        function renderResult(gridData) {
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size; j++) {
+                    const cellData = gridData[i][j];
+                    const cellIdx = i * size + j;
+                    const cell = gridContainer.children[cellIdx];
+                    
+                    if (cellData.is_obstacle) {
+                        continue;
+                    }
+                    
+                    const valueDiv = cell.querySelector('.cell-value');
+                    
+                    if (cellData.is_terminal) {
+                        valueDiv.innerHTML = "0.00<br><small style='font-size:0.6rem'>終點</small>";
+                    } else if (cellData.is_start) {
+                        valueDiv.innerHTML = cellData.value.toFixed(2) + "<br><small style='font-size:0.6rem'>起點</small>";
+                    } else {
+                        valueDiv.textContent = cellData.value.toFixed(2);
+                    }
+                    
+                    const arrowsDiv = cell.querySelector('.actions-overlay');
+                    arrowsDiv.innerHTML = '';
+                    arrowsDiv.classList.remove('hidden');
+                    
+                    // Display Optimal Policy Arrows
+                    if (!cellData.is_terminal && !cellData.is_obstacle) {
+                        cellData.actions.forEach(a => {
+                            const icon = document.createElement('i');
+                            icon.classList.add('fa-solid');
+                            if (a === 'U') icon.classList.add('fa-arrow-up', 'action-u');
+                            if (a === 'D') icon.classList.add('fa-arrow-down', 'action-d');
+                            if (a === 'L') icon.classList.add('fa-arrow-left', 'action-l');
+                            if (a === 'R') icon.classList.add('fa-arrow-right', 'action-r');
+                            arrowsDiv.appendChild(icon);
+                        });
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
